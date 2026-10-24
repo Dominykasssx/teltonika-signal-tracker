@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Files that run on Linux (router, SDK host) must keep LF even in Windows checkouts.
+*.sh text eol=lf
+Makefile text eol=lf
+rutos/apps/*/files/** text eol=lf

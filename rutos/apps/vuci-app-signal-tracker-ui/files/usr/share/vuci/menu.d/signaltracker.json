@@ -1,0 +1,8 @@
+{
+  "services/signal_tracker": {
+    "title": "Signal Tracker",
+    "index": 500,
+    "view": "",
+    "acls": ["services/signal_tracker"]
+  }
+}

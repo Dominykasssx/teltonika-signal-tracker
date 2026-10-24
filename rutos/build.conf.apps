@@ -1,0 +1,16 @@
+# Append to the [apps] section of the Puffin SDK build.conf (RUTX_R_SDK_00.07.25.3).
+# Order matters: the daemon first, then the API, then the UI.
+
+signal-tracker.enabled = true
+signal-tracker.ship = true
+signal-tracker.enable-init = signal-tracker
+signal-tracker.depends = <auto-deps>
+signal-tracker.description = Rotates the router with an ESP32-driven servo to find the best cellular signal
+
+vuci-app-signal-tracker-api.enabled = true
+vuci-app-signal-tracker-api.depends = signal-tracker
+vuci-app-signal-tracker-api.description = VuCI API support for Signal Tracker
+
+vuci-app-signal-tracker-ui.enabled = true
+vuci-app-signal-tracker-ui.depends = vuci-app-signal-tracker-api
+vuci-app-signal-tracker-ui.description = VuCI UI support for Signal Tracker

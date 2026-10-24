@@ -1,0 +1,17 @@
+{
+  "services/signal_tracker": {
+    "description": "Signal Tracker antenna positioning",
+    "read": {
+      "api": [
+        "/signal_tracker/*",
+        "/signal_tracker_config/*"
+      ]
+    },
+    "write": {
+      "api": [
+        "/signal_tracker/*",
+        "/signal_tracker_config/*"
+      ]
+    }
+  }
+}

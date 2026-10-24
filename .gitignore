@@ -1,0 +1,20 @@
+# ESP-IDF / PlatformIO build output
+esp32/servo-controller/.pio/
+esp32/servo-controller/build/
+esp32/servo-controller/managed_components/
+esp32/servo-controller/dependencies.lock
+esp32/servo-controller/sdkconfig
+esp32/servo-controller/sdkconfig.*
+!esp32/servo-controller/sdkconfig.defaults
+
+# Host test binaries
+esp32/servo-controller/test/test_controller
+rutos/apps/signal-tracker/tests/run_tests
+*.exe
+
+# RUTOS build output
+rutos/apps/signal-tracker/signal-tracker
+rutos/apps/vuci-app-signal-tracker-ui/node_modules
+rutos/apps/vuci-app-signal-tracker-ui/dest/
+rutos/apps/vuci-app-signal-tracker-ui/.plugin/
+rutos/apps/vuci-app-signal-tracker-ui/.env.plugin*
