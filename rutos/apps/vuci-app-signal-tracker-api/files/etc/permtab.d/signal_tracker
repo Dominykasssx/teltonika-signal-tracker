@@ -1,3 +1,1 @@
-# Format: <path> <owner:group> <permissions> <options>
-# The API runs as uhttpd and must be able to write the configuration.
 /etc/config/signal_tracker     uhttpd:uhttpd       644     -

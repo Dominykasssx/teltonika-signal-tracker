@@ -1,16 +1,81 @@
-# Append to the [apps] section of the Puffin SDK build.conf (RUTX_R_SDK_00.07.25.3).
-# Order matters: the daemon first, then the API, then the UI.
+# Append to the [apps] section of the RUTX Puffin SDK's build.conf (RUTX_R_SDK_00.07.25.3), in
+# this order: the service, then its VuCI API, then the WebUI page.
+#
+# On the router opkg installs the packages under /usr/local, and nothing picks up the files
+# they add by itself, so the maintainer scripts do what the firmware's own vuci-app packages
+# do. default_postinst (/lib/functions.sh) enables and starts init scripts, reloads ubusd's
+# ACLs and applies permtab.d; the API's scripts also reload the session ACLs and uhttpd's API
+# routes, the UI's the WebUI menu. On an upgrade the router's opkg runs the old package's
+# prerm with PKG_UPGRADE unset, which stops and disables the service, so the postinst always
+# enables and starts it (an old package without a prerm leaves it running: its init script
+# then makes procd restart it if the binary changed). While Puffin installs the packages into
+# a firmware image ($D, IPKG_INSTROOT or OPKG_OFFLINE_ROOT set) the scripts do nothing:
+# enable-init makes the boot links there.
+# post-process: Puffin copies the files into the package with the builder's umask, so the
+# directories the install creates on the router are made 755 whatever it was.
+# Scripts here are INI values: no line may start with # or ;, nor contain " #" or " ;".
 
 signal-tracker.enabled = true
 signal-tracker.ship = true
 signal-tracker.enable-init = signal-tracker
+signal-tracker.version = 2.2.4
 signal-tracker.depends = <auto-deps>
-signal-tracker.description = Rotates the router with an ESP32-driven servo to find the best cellular signal
+signal-tracker.description = Turns the router on an ESP servo turntable to find the best mobile signal
+signal-tracker.post-process = find . -type d -exec chmod 755 {} +
+signal-tracker.postinst =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_postinst "$0" "$@"
+	/etc/init.d/signal-tracker enable
+	/etc/init.d/signal-tracker start
+	exit 0
+signal-tracker.prerm =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_prerm "$0" "$@"
+	exit 0
 
 vuci-app-signal-tracker-api.enabled = true
+vuci-app-signal-tracker-api.version = 2.2.4
 vuci-app-signal-tracker-api.depends = signal-tracker
 vuci-app-signal-tracker-api.description = VuCI API support for Signal Tracker
+vuci-app-signal-tracker-api.post-process = find . -type d -exec chmod 755 {} +
+vuci-app-signal-tracker-api.postinst =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_postinst "$0" "$@"
+	ubus call session reload_acls
+	killall -q -1 uhttpd
+	exit 0
+vuci-app-signal-tracker-api.prerm =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_prerm "$0" "$@"
+	exit 0
+vuci-app-signal-tracker-api.postrm =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	ubus call session reload_acls
+	killall -q -1 uhttpd
+	killall -q -1 ubusd
+	exit 0
 
 vuci-app-signal-tracker-ui.enabled = true
+vuci-app-signal-tracker-ui.version = 2.2.4
 vuci-app-signal-tracker-ui.depends = vuci-app-signal-tracker-api
 vuci-app-signal-tracker-ui.description = VuCI UI support for Signal Tracker
+vuci-app-signal-tracker-ui.post-process = find . -type d -exec chmod 755 {} +
+vuci-app-signal-tracker-ui.postinst =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_postinst "$0" "$@"
+	ubus send vuci.notify '{"event": "reload_routes"}'
+	exit 0
+vuci-app-signal-tracker-ui.prerm =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	. /lib/functions.sh
+	default_prerm "$0" "$@"
+	exit 0
+vuci-app-signal-tracker-ui.postrm =
+	[ -z "$D$IPKG_INSTROOT$OPKG_OFFLINE_ROOT" ] || exit 0
+	ubus send vuci.notify '{"event": "reload_routes"}'
+	exit 0

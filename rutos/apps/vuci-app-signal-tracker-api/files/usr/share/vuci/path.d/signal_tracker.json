@@ -1,4 +1,4 @@
 [
-    { "/signal_tracker/{service_group}/{?sid}": "services/signal_tracker" },
-    { "/signal_tracker_config/{service_group}/{?sid}": "services/signal_tracker_config" }
+    { "endpoint": "/signal_tracker/{service_group}/{?sid}", "lua_service": "services/signal_tracker" },
+    { "endpoint": "/signal_tracker_config/{service_group}/{?sid}", "lua_service": "services/signal_tracker_config" }
 ]

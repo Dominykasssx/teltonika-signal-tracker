@@ -4,26 +4,19 @@ local ubus = require("ubus")
 
 local SignalTracker = FunctionService:new()
 
-local function call(method, args)
+-- Calls the daemon and turns its { error = ... } replies into API errors.
+local function call(self, method, args)
 	local conn = ubus.connect()
-	if not conn then
-		return nil, "Failed to connect to ubus"
+	local res = conn and conn:call("signal_tracker", method, args or {})
+	if conn then
+		conn:close()
 	end
-	local res = conn:call("signal_tracker", method, args or {})
-	conn:close()
 	if not res then
-		return nil, "Signal tracker service is not running"
-	end
-	return res
-end
-
-function SignalTracker:respond(res, err)
-	if not res then
-		self:add_critical_error(100, err, "signal_tracker")
+		self:add_critical_error(100, "Signal tracker service is not running", "signal_tracker")
 		return self:ResponseError()
 	end
-	if res.ok == false then
-		self:add_critical_error(100, res.message or res.error or "Request rejected", res.error or "signal_tracker")
+	if res.error then
+		self:add_critical_error(100, res.error, "signal_tracker")
 		return self:ResponseError()
 	end
 	return self:ResponseOK(res)
@@ -31,41 +24,50 @@ end
 
 -- GET /api/signal_tracker/status
 function SignalTracker:GET_TYPE_status()
-	return self:respond(call("status"))
+	return call(self, "status")
 end
 
-function SignalTracker:Move()
-	return self:respond(call("move", { angle = tonumber(self.arguments.data.angle) }))
+local function is_true(value)
+	return value == true or value == "1" or value == "true"
 end
 
-function SignalTracker:Stop()
-	return self:respond(call("stop"))
-end
-
-function SignalTracker:ScanStart()
-	return self:respond(call("scan_start"))
-end
-
-function SignalTracker:ScanCancel()
-	return self:respond(call("scan_cancel"))
-end
-
--- POST /api/signal_tracker/actions/move  { "data": { "angle": 90 } }
-local move = SignalTracker:action("move", SignalTracker.Move)
+-- POST /api/signal_tracker/actions/move  { "data": { "angle": 90, "async": true } }
+-- Without async the request returns once the turntable has reached the angle.
+local move = SignalTracker:action("move", function(self)
+	local data = self.arguments.data
+	return call(self, "move", { angle = tonumber(data.angle), async = is_true(data.async) })
+end)
 
 	local angle = move:option("angle")
 		angle.require = true
 		function angle:validate(value)
 			local n = tonumber(value)
-			if not n or n ~= math.floor(n) then
-				return false, "Angle must be an integer"
+			if not n or n ~= math.floor(n) or n < 0 or n > 360 then
+				return false, "Angle must be a whole number between 0 and 360"
 			end
 			return true
 		end
 
--- POST /api/signal_tracker/actions/{stop,scan_start,scan_cancel}
-SignalTracker:action("stop", SignalTracker.Stop)
-SignalTracker:action("scan_start", SignalTracker.ScanStart)
-SignalTracker:action("scan_cancel", SignalTracker.ScanCancel)
+	local async = move:option("async")
+		function async:validate(value)
+			if is_true(value) or value == false or value == "0" or value == "false" then
+				return true
+			end
+			return false, "async must be true or false"
+		end
+
+-- POST /api/signal_tracker/actions/scan_start
+-- Scans with the modem, metric and positions of the settings.
+SignalTracker:action("scan_start", function(self)
+	return call(self, "scan_start")
+end)
+
+-- POST /api/signal_tracker/actions/scan_stop
+SignalTracker:action("scan_stop", function(self)
+	return call(self, "scan_stop")
+end)
+
+-- Enabling and disabling is option enabled of the settings, like the others:
+-- PUT /api/signal_tracker_config/config/general  { "data": { "enabled": "0" } }
 
 return SignalTracker
