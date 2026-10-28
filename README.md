@@ -119,3 +119,25 @@ enabled and started (on an upgrade it is restarted, after a few seconds' stop), 
 the session daemon reload their ACLs, uhttpd reloads the API routes and the WebUI its menu.
 Upgrades keep the settings. `opkg remove` in the reverse order stops and disables the
 service and withdraws the API and the page; the settings stay.
+
+### From the package feed
+
+The [Packages workflow](.github/workflows/packages.yml) builds the packages with the RUTX
+SDK `RUTX_R_SDK_00.07.26` (for RUTOS 07.26 firmware) on every push. It keeps them as a
+workflow artifact, attaches them to a release for `v*` tags, and on `main` publishes them on
+GitHub Pages as an opkg feed signed with [`rutos/feed.pub`](rutos/feed.pub)'s key (the
+repository secret `OPKG_FEED_KEY`). The router checks feed signatures, so add the key once,
+then the feed:
+
+```sh
+wget -O /tmp/feed.pub https://dominykasssx.github.io/teltonika-signal-tracker/rutx/feed.pub
+opkg-key add /tmp/feed.pub
+echo 'src/gz signal_tracker https://dominykasssx.github.io/teltonika-signal-tracker/rutx' \
+    > /etc/opkg/customfeeds.conf
+opkg update
+opkg install vuci-app-signal-tracker-ui    # pulls in the API and the service
+```
+
+opkg only upgrades a package whose version has changed: bump the versions in
+[`rutos/build.conf.apps`](rutos/build.conf.apps) with each release, then `opkg update &&
+opkg upgrade signal-tracker vuci-app-signal-tracker-api vuci-app-signal-tracker-ui`.

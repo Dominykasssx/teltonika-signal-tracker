@@ -1,0 +1,110 @@
+# Builds the three RUTOS packages with Teltonika's RUTX Puffin SDK and publishes them as an
+# opkg feed on GitHub Pages (pushes to main), in a GitHub release (v* tags) and as a workflow
+# artifact (every run). On the router, /etc/opkg/customfeeds.conf:
+#   src/gz signal_tracker https://<owner>.github.io/<repo>/rutx
+name: Packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  SDK_VERSION: 00.07.26
+  SDK_URL: https://firmware.teltonika-networks.com/7.26/RUTX/RUTX_R_SDK_00.07.26.tar.gz
+  SDK_SHA256: d9e4283ae194f1ae0f138a34d552f2d85bc52d9dfef81bba655deea2e7271907
+  SDK_TARBALL: sdk-dl/RUTX_R_SDK.tar.gz
+  SDK: sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # 550 MB from Teltonika's server, and old SDKs get taken down: keep a copy.
+      - name: Cache SDK
+        id: sdk-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.SDK_TARBALL }}
+          key: rutx-sdk-${{ env.SDK_VERSION }}-${{ env.SDK_SHA256 }}
+
+      - name: Download SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$(dirname "$SDK_TARBALL")"
+          curl -fsSL --retry 3 -o "$SDK_TARBALL" "$SDK_URL"
+
+      # The SDK's own example apps are dropped, and its [apps] section (the last one in
+      # build.conf) replaced with ours.
+      - name: Set up SDK
+        run: |
+          echo "$SDK_SHA256  $SDK_TARBALL" | sha256sum -c -
+          mkdir -p "$SDK"
+          tar -xzf "$SDK_TARBALL" -C "$SDK"
+          rm -rf "$SDK"/apps/*
+          cp -r rutos/apps/. "$SDK/apps/"
+          sed -i '/^\[apps\]/,$d' "$SDK/build.conf"
+          { echo '[apps]'; cat rutos/build.conf.apps; } >> "$SDK/build.conf"
+
+      # puf only warns when it cannot make an app's package, so check that each one is there.
+      - name: Build packages
+        working-directory: ${{ env.SDK }}
+        run: |
+          source init-build-env
+          puf apps build
+          for app in "$GITHUB_WORKSPACE"/rutos/apps/*/; do
+            app=$(basename "$app")
+            ls dist/packages/"$app"_*.ipk > /dev/null || { echo "::error::No package for $app"; exit 1; }
+          done
+
+      - name: Make feed
+        env:
+          OPKG_FEED_KEY: ${{ secrets.OPKG_FEED_KEY }}
+        run: |
+          source "$SDK/init-build-env" > /dev/null
+          sh rutos/make-feed.sh "$SDK/dist/packages" site/rutx rutos/feed.pub
+          cat site/rutx/Packages
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signal-tracker-rutx-${{ env.SDK_VERSION }}
+          path: site/rutx
+
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}rutx
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: signal-tracker-rutx-${{ env.SDK_VERSION }}
+          path: feed
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" feed/*.ipk --repo "$GITHUB_REPOSITORY" --generate-notes
