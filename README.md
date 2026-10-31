@@ -6,6 +6,8 @@ signal. An ESP8266 or ESP32 running the
 the router talks to it over USB serial, measures the signal at each position and turns to
 the best one.
 
+![Signal Tracker WebUI after a 9-position scan on a 180° turntable, turned to the best position F](webui_ss.png)
+
 On the router it is three RUTOS packages, laid out like the SDK's examples
 (`example-app`, `vuci-app-example-api`, `vuci-app-example-ui`):
 
@@ -33,6 +35,10 @@ On the router it is three RUTOS packages, laid out like the SDK's examples
   second apart and averages them. It then turns to the position with the highest average
   of the `metric`, signal quality or RSRP. Both are recorded at every position. The scan
   starts from the end nearer the current angle.
+- **Retries.** If the turntable's USB serial port disappears, the firmware restarts, or a
+  move does not arrive in time, the scan does not fail at once. It waits up to 30 s for the
+  turntable to report again, turns back to the position it was at and measures that
+  position again from the start. It fails after 3 attempts in a row at one position.
 - **Stop Scan** ends the scan; a move already under way still finishes.
 - **Disabled** (`enabled '0'`, the Disable button), the service keeps running but reads
   no signal and releases the turntable's serial port, so the WebUI can switch it back on.

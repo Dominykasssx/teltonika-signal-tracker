@@ -315,9 +315,12 @@ export default {
           moving: this.$t("Moving to"),
           measuring: this.$t("Measuring"),
           returning: this.$t("Returning to the best position"),
+          reconnecting: this.$t("Waiting for the turntable to return to"),
         };
         const where = `${this.letters[s.current]} (${this.positionAngle(s.current)}°)`;
-        return `${steps[s.step]} ${where} · ${s.measured}/${s.positions} ${this.$t("measured")}`;
+        const progress = `${steps[s.step]} ${where} · ${s.measured}/${s.positions} ${this.$t("measured")}`;
+        // s.message, while running, says why the position is being retried
+        return s.message ? `${s.message} · ${progress}` : progress;
       }
       if (s.message) return s.message;
       if (this.connected) return `${this.$t("Turntable travel")} ${this.tt.travel}°, ${this.tt.device}`;

@@ -49,6 +49,8 @@
 #define SILENCE_MS 5000 /* no line from the turntable for this long: not responding */
 #define SAMPLE_INTERVAL_MS 1000
 #define MOVE_SLACK_MS 5000
+#define SCAN_RETRIES 3          /* failed attempts at one position before the scan fails */
+#define RECONNECT_WAIT_MS 30000 /* a scan waits this long for the turntable to come back */
 
 enum metric { METRIC_QUALITY, METRIC_RSRP, __METRIC_MAX };
 
@@ -104,6 +106,8 @@ struct scan {
 	int measured;
 	int current;  /* position being moved to or measured */
 	int best;     /* -1 until a position has a value */
+	int retries;  /* failed attempts at reaching the current position */
+	bool waiting; /* the turntable went away; resumes once it reports again */
 	struct result res[MAX_POSITIONS];
 	char message[128];
 };
@@ -141,6 +145,9 @@ static struct ubus_auto_conn conn;
 static struct blob_buf b;
 
 static void scan_end(enum scan_state state, const char *fmt, ...);
+static void scan_retry(const char *why);
+static void scan_resume(void);
+static void scan_arrived(void);
 static void move_done(const char *error);
 
 static long long now_ms(void)
@@ -227,8 +234,7 @@ static void close_port(const char *why)
 	tt.known = false;
 	tt.moving = false;
 	set_error("%s: %s", port_path, why);
-	if (running)
-		scan_end(SCAN_FAILED, "Turntable disconnected");
+	scan_retry("Turntable disconnected");
 	move_done("Turntable disconnected");
 	uloop_timeout_set(&reopen_timer, REOPEN_MS);
 }
@@ -307,8 +313,7 @@ static void handle_line(const char *line)
 	if (strstr(line, "Turntable ready")) {
 		/* the firmware restarted and drove the servo to the middle of its travel */
 		tt.known = false;
-		if (running)
-			scan_end(SCAN_FAILED, "Turntable restarted during the scan");
+		scan_retry("Turntable restarted");
 		move_done("Turntable restarted during the move");
 		send_cmd("?");
 	} else if (sscanf(line, "POS %d TARGET %d SPEED %d MAX %d", &a, &b, &c, &d) == 4) {
@@ -318,6 +323,10 @@ static void handle_line(const char *line)
 		tt.speed = c;
 		tt.travel = d;
 		tt.moving = a != b;
+		tt.last_rx = now_ms();
+		if (running && running->waiting)
+			scan_resume();
+		return;
 	} else if (sscanf(line, "MOVING %d -> %d", &a, &b) == 2) {
 		tt.angle = a;
 		tt.target = b;
@@ -328,16 +337,9 @@ static void handle_line(const char *line)
 		tt.moving = false;
 		if (waiting.active && a == waiting.target)
 			move_done(NULL);
-		if (running && running->step != STEP_MEASURE &&
-		    a == position_angle(running->current, running->positions, running->travel)) {
-			if (running->step == STEP_RETURN) {
-				scan_end(SCAN_DONE, "Turned to the best position %c (%d°)",
-					 'A' + running->best, a);
-			} else {
-				running->step = STEP_MEASURE;
-				uloop_timeout_set(&scan_timer, running->settle * 1000);
-			}
-		}
+		if (running && !running->waiting && running->step != STEP_MEASURE &&
+		    a == position_angle(running->current, running->positions, running->travel))
+			scan_arrived();
 	} else if (strncmp(line, "ERR", 3) == 0) {
 		set_error("Turntable: %s", line + 3 + strspn(line + 3, " "));
 		if (running && running->step != STEP_MEASURE)
@@ -549,17 +551,89 @@ static void scan_move(int position)
 	send_move(angle);
 }
 
+/* The turntable reported "AT" the current position's angle. */
+static void scan_arrived(void)
+{
+	struct scan *s = running;
+
+	s->retries = 0;
+	s->message[0] = '\0';
+	if (s->step == STEP_RETURN) {
+		scan_end(SCAN_DONE, "Turned to the best position %c (%d°)", 'A' + s->best,
+			 position_angle(s->best, s->positions, s->travel));
+	} else {
+		s->step = STEP_MEASURE;
+		uloop_timeout_set(&scan_timer, s->settle * 1000);
+	}
+}
+
+/*
+ * The turntable went away (USB serial port gone, firmware restart) or did not reach the
+ * position: the current position is tried again, after the turntable is back if needed.
+ * The scan fails after SCAN_RETRIES attempts in a row.
+ */
+static void scan_retry(const char *why)
+{
+	struct scan *s = running;
+
+	if (!s || s->waiting) /* already waiting: the same outage */
+		return;
+	if (++s->retries > SCAN_RETRIES) {
+		scan_end(SCAN_FAILED, "%s, gave up after %d retries", why, SCAN_RETRIES);
+		return;
+	}
+	if (s->step == STEP_MEASURE) {
+		/* the platform may have moved meanwhile: measure the position again */
+		memset(&s->res[s->current], 0, sizeof(s->res[s->current]));
+		s->step = STEP_MOVE;
+	}
+	snprintf(s->message, sizeof(s->message), "%s, retrying (%d/%d)", why, s->retries,
+		 SCAN_RETRIES);
+	syslog(LOG_WARNING, "scan: %s", s->message);
+	if (responding()) {
+		scan_move(s->current);
+		return;
+	}
+	s->waiting = true;
+	uloop_timeout_set(&scan_timer, RECONNECT_WAIT_MS);
+}
+
+/* The turntable reports again after scan_retry(): back to the current position. */
+static void scan_resume(void)
+{
+	struct scan *s = running;
+	int angle = position_angle(s->current, s->positions, s->travel);
+
+	if (tt.travel != s->travel) {
+		scan_end(SCAN_FAILED, "Turntable travel changed during the scan");
+		return;
+	}
+	s->waiting = false;
+	syslog(LOG_INFO, "scan: turntable is back, resuming at %c", 'A' + s->current);
+	if (!tt.moving && tt.angle == angle)
+		scan_arrived();
+	else
+		scan_move(s->current);
+}
+
 static void on_scan_timer(struct uloop_timeout *t)
 {
 	struct scan *s = running;
 	struct result *r;
 	enum metric m;
+	char why[64];
 
 	if (!s)
 		return;
+	if (s->waiting) {
+		scan_end(SCAN_FAILED, "Turntable did not come back within %d s",
+			 RECONNECT_WAIT_MS / 1000);
+		return;
+	}
 	if (s->step != STEP_MEASURE) {
-		scan_end(SCAN_FAILED, "Turntable did not reach %d°",
+		snprintf(why, sizeof(why), "Turntable did not reach %d°",
 			 position_angle(s->current, s->positions, s->travel));
+		scan_retry(why);
 		return;
 	}
 
@@ -686,7 +760,8 @@ static void add_scan(const struct scan *s)
 		blobmsg_add_u32(&b, "travel", s->travel);
 		blobmsg_add_u32(&b, "measured", s->measured);
 		if (s == running) {
-			blobmsg_add_string(&b, "step", step_names[s->step]);
+			blobmsg_add_string(&b, "step",
+					   s->waiting ? "reconnecting" : step_names[s->step]);
 			blobmsg_add_u32(&b, "current", s->current);
 		}
 		if (s->best >= 0)
