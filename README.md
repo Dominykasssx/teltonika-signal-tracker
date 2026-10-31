@@ -8,6 +8,8 @@ the best one.
 
 ![Signal Tracker WebUI after a 9-position scan on a 180° turntable, turned to the best position F](webui_ss.png)
 
+![A scan in the WebUI: the router turns sector by sector from I to A, measuring each, then returns to the best one, H](scan.gif)
+
 On the router it is three RUTOS packages, laid out like the SDK's examples
 (`example-app`, `vuci-app-example-api`, `vuci-app-example-ui`):
 
