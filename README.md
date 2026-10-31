@@ -19,6 +19,11 @@ On the router it is three RUTOS packages, laid out like the SDK's examples
 | `vuci-app-signal-tracker-api` | [`rutos/apps/vuci-app-signal-tracker-api`](rutos/apps/vuci-app-signal-tracker-api) | VuCI API (Lua): `/api/signal_tracker/*` and `/api/signal_tracker_config/*`, with ACLs |
 | `vuci-app-signal-tracker-ui` | [`rutos/apps/vuci-app-signal-tracker-ui`](rutos/apps/vuci-app-signal-tracker-ui) | The **Services → Signal Tracker** WebUI page (Vue) |
 
+## Related
+
+- **Turntable firmware:** [signal-tracker](https://github.com/dominykasssx/signal-tracker) — ESP8266 / ESP32 firmware for the servo platform, with a browser flasher, wiring and serial commands.
+- **3D-printed stand:** STL files for the turntable on [Thingiverse](https://www.thingiverse.com/thing:7429147).
+
 ## How it works
 
 - **Turntable.** The service uses the firmware's serial commands (115200 baud, one per
@@ -145,7 +150,3 @@ echo 'src/gz signal_tracker https://dominykasssx.github.io/teltonika-signal-trac
 opkg update
 opkg install vuci-app-signal-tracker-ui    # pulls in the API and the service
 ```
-
-opkg only upgrades a package whose version has changed: bump the versions in
-[`rutos/build.conf.apps`](rutos/build.conf.apps) with each release, then `opkg update &&
-opkg upgrade signal-tracker vuci-app-signal-tracker-api vuci-app-signal-tracker-ui`.
